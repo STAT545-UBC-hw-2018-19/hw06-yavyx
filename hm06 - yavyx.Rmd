@@ -13,11 +13,12 @@ As usual, we'll start by loading the necessary packages
 suppressPackageStartupMessages(library(tidyverse))
 library(broom)
 library(gapminder)
+library(MASS)
 ```
 
 ##Working with a nested data frame
 
-We will first create a nested Gapminder dataframe to be able to run more complicated analysis in each group of interest (country and continent) than would only be possible with the `group_by()` function.
+We will first create a nested Gapminder dataframe to be able to run more complicated analysis in each group of interest (country and continent) than would be possible with the `group_by()` function.
 ```{r}
 nested_gapminder <- gapminder %>%
   group_by(continent, country) %>%
@@ -36,17 +37,17 @@ nested_gapminder$data[1]
 
 Here we can see the information that corresponds to the first country, Afghanistan.
 
-Next, we'll define functions to get linear least-squares and robust regressions to be able to compare how accurately they model the data. We'll model how population changes through time in each country.
+Next, we'll define functions to get linear least-squares and robust regressions to be able to compare how accurately they model the data. We'll model how population life expeectancy through time in each country.
 
 ```{r}
 linear_model <- function(data) {
   offset <- min(data$year)
-  lm(pop ~ I(year - offset), data)
+  lm(lifeExp ~ I(year - offset), data)
 }
 
 robust_model <- function(data) {
   offset <- min(data$year)
-  MASS::rlm(pop ~ I(year - offset), data) 
+  rlm(lifeExp ~ I(year - offset), data) 
 }
 ```
 
@@ -57,10 +58,9 @@ We will test our functions with the first country and to confirm it's working as
 
 ```{r}
 linear_model(nested_gapminder$data[[1]])
-robust_model(nested_gapminder$data[[1]])
 ```
 
-It weems to be working, so we will add a new column to our nested dataframe with the information of each model.
+It weems to be working, so we will add a new column to our nested dataframe with the information from each model.
 
 ```{r}
 nested_gapminder <- nested_gapminder %>%
@@ -68,18 +68,14 @@ nested_gapminder <- nested_gapminder %>%
          robust_fit = map(data, robust_model))  
 ```
 
-After doing this, we can use the `broom` package to see how every data point and extract the data that we need from each model. For this, we use the `augment()` function that gives us the residuals for every data point, and the `glance()` function that summarizes how well the model fits the data.
+After doing this, we can use the `broom` package to see how every data point is modeled and extract the data that we want from each model. For this, we use the `augment()` function that gives us the residuals for every data point.
 ```{r}
 nested_gapminder <- nested_gapminder %>%
     mutate(linear_augment = map(linear_fit, augment),
-           robust_augment = map(robust_fit, augment),
-           linear_glance = map(linear_fit, glance),
-           robust_glance = map(robust_fit, glance)) 
+           robust_augment = map(robust_fit, augment))
 
-nested_gapminder$linear_augment[[1]]
-nested_gapminder$robust_augment[[1]]
-nested_gapminder$linear_glance[[1]]
-nested_gapminder$robust_glance[[1]]
+nested_gapminder$linear_augment[[1]] #checking contents of first tibble
+nested_gapminder$robust_augment[[1]] #checking contents of first tibble
 ```
 
 Now we can unnest the dataframe to perform some analysis on the residuals.
@@ -91,28 +87,48 @@ gapminder_residuals <- nested_gapminder %>%
 ```
 
 ```{r}
-mean(gapminder_residuals$.resid)
-mean(gapminder_residuals$.resid1)
+gapminder_residuals <- gapminder_residuals %>%
+  mutate(residuals_diff = .resid  - .resid1) #Get the difference in residuals 
 
-max_residual_countries <- gapminder_residuals %>%
-  group_by(continent) %>%
-  filter(.std.resid == max(.std.resid)) #Find datapoints with max residuals
+knitr::kable(gapminder_residuals %>%
+  filter(residuals_diff == max(residuals_diff))) #Find the country with the highest residual difference between the two models
   
-gapminder_residuals %>%
-  group_by(continent) %>%
-  filter(.resid1 == max(.resid1))
+knitr::kable(gapminder_residuals %>%
+  arrange(residuals_diff) %>%
+  head()) #Arrange the data in order of residual difference
 ```
 
-
+It is Swaziland, so let's plot its information to take a closer look at what's going on.
 
 ```{r}
 gapminder %>%
-  filter(country == "Dominican Republic") %>%
-  ggplot(aes(pop, year-1952)) +
+  filter(country == "Swaziland") %>%
+  ggplot(aes(year, lifeExp)) +
     geom_point() +
-    geom_smooth(method = "lm")
+    geom_smooth(method = "lm", color = "blue") +
+    geom_smooth(method = "rlm", color = "red") +
+    labs(title = "Life Expectancy in Swaziland",
+         x = "Year",
+         y = "Life Expectancy") +
+    theme_bw()
 ```
 
+Neither model really gets close to the actual data, because it doesn't seem to behave in a linear way. Therefore, a quadratic model makes more sense in this case:
 
+```{r}
+gapminder %>%
+  filter(country == "Swaziland") %>%
+  ggplot(aes(x = year, y = lifeExp)) +
+    geom_point() +
+    geom_smooth(method = "lm", formula = y ~ x + I(x^2), color = "blue") + #specify qudratic model
+    labs(title = "Life Expectancy in Swaziland",
+         x = "Year",
+         y = "Life Expectancy") +
+    theme_bw()
+```
+
+##References
+- [Robust Regression Using R](http://www.alastairsanderson.com/R/tutorials/robust-regression-in-R/)
+- [MASS:rlm Documentation](https://stat.ethz.ch/R-manual/R-devel/library/MASS/html/rlm.html)
 
 
