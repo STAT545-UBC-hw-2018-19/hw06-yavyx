@@ -8,7 +8,7 @@ Files
 -----
 
 -   Markdown file is [here](https://github.com/STAT545-UBC-students/hw06-yavyx/blob/master/hm06_-_yavyx.md).
--   R markdown file is [here](https://github.com/STAT545-UBC-students/hw06-yavyx/blob/master/hm06_-_yavyx.md).
+-   R markdown file is [here](https://github.com/STAT545-UBC-students/hw06-yavyx/blob/master/hm06%20-%20yavyx.Rmd).
 
 About the author
 ----------------
