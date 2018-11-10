@@ -1,0 +1,118 @@
+---
+title: "hw06 - yavyx"
+author: "Javier Castillo-Arnemann"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+As usual, we'll start by loading the necessary packages
+```{r}
+suppressPackageStartupMessages(library(tidyverse))
+library(broom)
+library(gapminder)
+```
+
+##Working with a nested data frame
+
+We will first create a nested Gapminder dataframe to be able to run more complicated analysis in each group of interest (country and continent) than would only be possible with the `group_by()` function.
+```{r}
+nested_gapminder <- gapminder %>%
+  group_by(continent, country) %>%
+  nest()
+```
+
+Let's take a look at this new dataframe
+```{r}
+nested_gapminder
+```
+There is a row for every country, and a tibble corresponding to each one. Let's see the information contained in each tibble.
+
+```{r}
+nested_gapminder$data[1]
+```
+
+Here we can see the information that corresponds to the first country, Afghanistan.
+
+Next, we'll define functions to get linear least-squares and robust regressions to be able to compare how accurately they model the data. We'll model how population changes through time in each country.
+
+```{r}
+linear_model <- function(data) {
+  offset <- min(data$year)
+  lm(pop ~ I(year - offset), data)
+}
+
+robust_model <- function(data) {
+  offset <- min(data$year)
+  MASS::rlm(pop ~ I(year - offset), data) 
+}
+```
+
+The `I()` function tells R to interpret the minus sign as an arithmetic operator instead of a formula operator. The offset is to ensure that our model has the right intercept, and corresponds to the lowest year value in each dataset.
+
+We will test our functions with the first country and to confirm it's working as it should before iterating through every country.
+
+
+```{r}
+linear_model(nested_gapminder$data[[1]])
+robust_model(nested_gapminder$data[[1]])
+```
+
+It weems to be working, so we will add a new column to our nested dataframe with the information of each model.
+
+```{r}
+nested_gapminder <- nested_gapminder %>%
+  mutate(linear_fit = map(data, linear_model),
+         robust_fit = map(data, robust_model))  
+```
+
+After doing this, we can use the `broom` package to see how every data point and extract the data that we need from each model. For this, we use the `augment()` function that gives us the residuals for every data point, and the `glance()` function that summarizes how well the model fits the data.
+```{r}
+nested_gapminder <- nested_gapminder %>%
+    mutate(linear_augment = map(linear_fit, augment),
+           robust_augment = map(robust_fit, augment),
+           linear_glance = map(linear_fit, glance),
+           robust_glance = map(robust_fit, glance)) 
+
+nested_gapminder$linear_augment[[1]]
+nested_gapminder$robust_augment[[1]]
+nested_gapminder$linear_glance[[1]]
+nested_gapminder$robust_glance[[1]]
+```
+
+Now we can unnest the dataframe to perform some analysis on the residuals.
+
+```{r}
+gapminder_residuals <- nested_gapminder %>%
+  dplyr::select(continent, country, linear_augment, robust_augment) %>%
+  unnest(linear_augment, robust_augment)
+```
+
+```{r}
+mean(gapminder_residuals$.resid)
+mean(gapminder_residuals$.resid1)
+
+max_residual_countries <- gapminder_residuals %>%
+  group_by(continent) %>%
+  filter(.std.resid == max(.std.resid)) #Find datapoints with max residuals
+  
+gapminder_residuals %>%
+  group_by(continent) %>%
+  filter(.resid1 == max(.resid1))
+```
+
+
+
+```{r}
+gapminder %>%
+  filter(country == "Dominican Republic") %>%
+  ggplot(aes(pop, year-1952)) +
+    geom_point() +
+    geom_smooth(method = "lm")
+```
+
+
+
+
